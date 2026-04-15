@@ -1,10 +1,13 @@
 import argparse
 import logging
+import json
 import socket
 from dataclasses import dataclass
 
 
 logger = logging.getLogger(__file__)
+PATH_VIZ_HOST = "127.0.0.1"
+PATH_VIZ_PORT = 60002
 
 
 @dataclass(frozen=True)
@@ -136,6 +139,27 @@ def _t1_neutral_pd_cmd(kp: float = 150.0, kd: float = 1.0) -> str:
     return "".join(parts)
 
 
+def _send_viz_event(
+    event: str,
+    player_num: int,
+    team: str,
+    pose: Pose2D,
+    host: str = PATH_VIZ_HOST,
+    port: int = PATH_VIZ_PORT,
+) -> None:
+    payload = {
+        "event": event,
+        "player": player_num,
+        "team": team,
+        "location": [pose.x, pose.y],
+    }
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.sendto(json.dumps(payload).encode(), (host, port))
+    except OSError:
+        pass
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Minimal client: connect + init robot model + beam to fixed pose."
@@ -160,6 +184,7 @@ def main() -> None:
     client = RcssServerMjClient(host=args.host, port=args.port)
 
     client.connect()
+    _send_viz_event(event="obstacle_join", player_num=args.number, team=args.team, pose=pose)
 
     # This is the minimum "load robot model" step from passing/: (init <model> <team> <number>)
     client.send_cmd(f"(init {args.model} {args.team} {args.number})")
@@ -177,6 +202,7 @@ def main() -> None:
                 # Keep the client active with an explicit no-op action.
                 client.send_cmd("(syn)" + neutral_cmd)
     finally:
+        _send_viz_event(event="obstacle_shutdown", player_num=args.number, team=args.team, pose=pose)
         client.close()
 
 
