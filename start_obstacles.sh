@@ -47,6 +47,12 @@ cleanup() {
 
 trap cleanup INT TERM EXIT
 
+CUSTOM=/home/arv/rob450/obstacles/start_obstacles_custom.sh
+if [[ -f "$CUSTOM" ]]; then
+    echo "Using custom obstacle placement..."
+    exec "$CUSTOM"
+fi
+
 rand_x_1=$(awk -v min=0.5 -v max=4.5 -v seed=$RANDOM 'BEGIN{srand(seed); printf "%.2f", min+rand()*(max-min)}')
 rand_y_1=$(awk -v min=0.0 -v max=4.0 -v seed=$RANDOM 'BEGIN{srand(seed); printf "%.2f", min+rand()*(max-min)}')
 echo "Executing: python3 run_obstacles.py --number 1 --x $rand_x_1 --y $rand_y_1"

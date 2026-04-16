@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Obstacle Placement</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:        #0d0f14;
+    --panel:     #13161e;
+    --border:    #1f2433;
+    --c1:        #00d4ff;
+    --c2:        #ff7b2e;
+    --c3:        #39e87b;
+    --text:      #e8ecf5;
+    --muted:     #556080;
+    --radius:    6px;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Syne', sans-serif;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 2rem 1rem;
+    gap: 1.5rem;
+  }
+
+  header {
+    text-align: center;
+  }
+  header p {
+    color: var(--muted);
+    font-size: 0.82rem;
+    font-family: 'Space Mono', monospace;
+    margin-top: 4px;
+  }
+
+  .layout {
+    display: flex;
+    gap: 1.25rem;
+    width: 100%;
+    max-width: 900px;
+    align-items: flex-start;
+  }
+
+  .field-wrap {
+    flex: 1 1 auto;
+    position: relative;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+    user-select: none;
+    touch-action: none;
+    aspect-ratio: 7/8;
+    min-width: 0;
+  }
+
+  .field-wrap canvas {
+    position: absolute; inset: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+  }
+
+  .obstacle {
+    position: absolute;
+    width: 40px; height: 40px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'Space Mono', monospace;
+    font-weight: 700;
+    font-size: 15px;
+    cursor: grab;
+    transform: translate(-50%, -50%);
+    border: 2px solid;
+    backdrop-filter: blur(4px);
+    transition: box-shadow 0.15s, transform 0.1s;
+    z-index: 2;
+  }
+  .obstacle:hover { transform: translate(-50%, -50%) scale(1.1); }
+  .obstacle.dragging {
+    cursor: grabbing;
+    z-index: 10;
+    transform: translate(-50%, -50%) scale(1.15);
+  }
+
+  .sidebar {
+    flex: 0 0 200px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .btn-group { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.25rem; }
+
+  button {
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    font-size: 0.82rem;
+    letter-spacing: 0.04em;
+    padding: 9px 14px;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text);
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+  }
+  button:hover { background: var(--border); }
+
+  #saveBtn {
+    background: var(--c1);
+    color: #000;
+    border-color: var(--c1);
+  }
+  #saveBtn:hover { opacity: 0.85; }
+  #saveBtn.success {
+    background: var(--c3);
+    border-color: var(--c3);
+  }
+  #saveBtn.error {
+    background: #ff4444;
+    border-color: #ff4444;
+    color: #fff;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <p>drag each robot in its zone · then save</p>
+</header>
+
+<div class="layout">
+  <div class="field-wrap" id="field">
+    <canvas id="gridCanvas"></canvas>
+  </div>
+
+  <div class="sidebar">
+    <div class="btn-group">
+      <button id="saveBtn">Save Script</button>
+      <button id="randBtn">Randomize</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const FIELD_W = 7, FIELD_H = 8; // world units (y: -4 to +4)
+const Y_MIN = -4, Y_MAX = 4;
+const X_MIN = 0, X_MAX = 7;
+
+const ZONES = [
+  { id: 1, xMin: 0.5, xMax: 4.5, yMin: 0.0, yMax: 4.0,  color: 'var(--c1)', colorHex: '#00d4ff' },
+  { id: 2, xMin: 0.5, xMax: 4.5, yMin: -4.0, yMax: 0.0, color: 'var(--c2)', colorHex: '#ff7b2e' },
+  { id: 3, xMin: 4.5, xMax: 6.5, yMin: -2.0, yMax: 2.0, color: 'var(--c3)', colorHex: '#39e87b' },
+];
+
+let W = 0, H = 0;
+let positions = [];
+
+function randIn(lo, hi) { return lo + Math.random() * (hi - lo); }
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+function toPixel(wx, wy) {
+  return [
+    (wx - X_MIN) / (X_MAX - X_MIN) * W,
+    (1 - (wy - Y_MIN) / (Y_MAX - Y_MIN)) * H
+  ];
+}
+function toWorld(px, py) {
+  return [
+    px / W * (X_MAX - X_MIN) + X_MIN,
+    (1 - py / H) * (Y_MAX - Y_MIN) + Y_MIN
+  ];
+}
+
+function randomPositions() {
+  return ZONES.map(z => ({ x: randIn(z.xMin, z.xMax), y: randIn(z.yMin, z.yMax) }));
+}
+
+function drawGrid() {
+  const canvas = document.getElementById('gridCanvas');
+  const fieldEl = document.getElementById('field');
+  W = fieldEl.offsetWidth;
+  H = fieldEl.offsetHeight;
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, W, H);
+
+  ctx.strokeStyle = '#1a1f2e';
+  ctx.lineWidth = 1;
+  for (let x = 0; x <= 7; x++) {
+    const [px] = toPixel(x, 0);
+    ctx.beginPath(); ctx.moveTo(px, 0); ctx.lineTo(px, H); ctx.stroke();
+  }
+  for (let y = -4; y <= 4; y++) {
+    const [, py] = toPixel(0, y);
+    ctx.beginPath(); ctx.moveTo(0, py); ctx.lineTo(W, py); ctx.stroke();
+  }
+
+  const [, midY] = toPixel(0, 0);
+  ctx.strokeStyle = '#2a3050';
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([6, 4]);
+  ctx.beginPath(); ctx.moveTo(0, midY); ctx.lineTo(W, midY); ctx.stroke();
+  ctx.setLineDash([]);
+
+  ZONES.forEach(z => {
+    const [x1, y1] = toPixel(z.xMin, z.yMax);
+    const [x2, y2] = toPixel(z.xMax, z.yMin);
+    ctx.fillStyle = z.colorHex + '18';
+    ctx.fillRect(x1, y1, x2 - x1, y2 - y1);
+    ctx.strokeStyle = z.colorHex + '55';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([5, 4]);
+    ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+    ctx.setLineDash([]);
+  });
+}
+
+function buildObstacles() {
+  document.querySelectorAll('.obstacle').forEach(e => e.remove());
+  const field = document.getElementById('field');
+
+  ZONES.forEach((z, i) => {
+    const [px, py] = toPixel(positions[i].x, positions[i].y);
+    const el = document.createElement('div');
+    el.className = 'obstacle';
+    el.id = 'obs' + z.id;
+    el.textContent = z.id;
+    el.style.left = px + 'px';
+    el.style.top  = py + 'px';
+    el.style.borderColor = z.colorHex;
+    el.style.color = z.colorHex;
+    el.style.background = z.colorHex + '22';
+    el.style.boxShadow = `0 0 12px ${z.colorHex}44`;
+    el.dataset.zone = i;
+    field.appendChild(el);
+    makeDraggable(el, i, z);
+  });
+}
+
+function makeDraggable(el, idx, zone) {
+  let sx, sy, sl, st, dragging = false;
+
+  function start(ex, ey) {
+    dragging = true;
+    sx = ex; sy = ey;
+    sl = parseFloat(el.style.left);
+    st = parseFloat(el.style.top);
+    el.classList.add('dragging');
+  }
+  function move(ex, ey) {
+    if (!dragging) return;
+    let nl = sl + (ex - sx);
+    let nt = st + (ey - sy);
+    const [xMinPx]    = toPixel(zone.xMin, 0);
+    const [xMaxPx]    = toPixel(zone.xMax, 0);
+    const [, yMaxPx]  = toPixel(0, zone.yMax);
+    const [, yMinPx]  = toPixel(0, zone.yMin);
+    nl = clamp(nl, xMinPx, xMaxPx);
+    nt = clamp(nt, yMaxPx, yMinPx);
+    el.style.left = nl + 'px';
+    el.style.top  = nt + 'px';
+    const [wx, wy] = toWorld(nl, nt);
+    positions[idx] = { x: wx, y: wy };
+  }
+  function end() { dragging = false; el.classList.remove('dragging'); }
+
+  el.addEventListener('mousedown',  e => { e.preventDefault(); start(e.clientX, e.clientY); });
+  window.addEventListener('mousemove', e => move(e.clientX, e.clientY));
+  window.addEventListener('mouseup', end);
+  el.addEventListener('touchstart',  e => { e.preventDefault(); start(e.touches[0].clientX, e.touches[0].clientY); }, { passive: false });
+  window.addEventListener('touchmove', e => { if (!dragging) return; e.preventDefault(); move(e.touches[0].clientX, e.touches[0].clientY); }, { passive: false });
+  window.addEventListener('touchend', end);
+}
+
+function scriptContent() {
+  const lines = [
+    '#!/bin/bash',
+    'set -u',
+    'child_pids=()',
+    '',
+    'cleanup_done=0',
+    'cleanup() {',
+    '  if [[ "$cleanup_done" -eq 1 ]]; then return; fi',
+    '  cleanup_done=1',
+    '  [[ "${#child_pids[@]}" -eq 0 ]] && return',
+    '  echo "Shutting down obstacle processes..."',
+    '  kill -TERM "${child_pids[@]}" 2>/dev/null || true',
+    '  for _ in {1..20}; do',
+    '    any_alive=0',
+    '    for pid in "${child_pids[@]}"; do',
+    '      kill -0 "$pid" 2>/dev/null && any_alive=1 && break',
+    '    done',
+    '    [[ "$any_alive" -eq 0 ]] && break',
+    '    sleep 0.1',
+    '  done',
+    '  kill -KILL "${child_pids[@]}" 2>/dev/null || true',
+    '}',
+    'trap cleanup INT TERM EXIT',
+    '',
+    ...ZONES.map((z, i) => {
+      const p = positions[i];
+      return [
+        `echo "Executing: python3 run_obstacles.py --number ${z.id} --x ${p.x.toFixed(2)} --y ${p.y.toFixed(2)}"`,
+        `python3 run_obstacles.py --number ${z.id} --x ${p.x.toFixed(2)} --y ${p.y.toFixed(2)} &`,
+        `child_pids+=($!)`,
+        ''
+      ].join('\n');
+    }),
+    'wait "${child_pids[@]}"'
+  ];
+  return lines.join('\n');
+}
+
+document.getElementById('saveBtn').addEventListener('click', () => {
+  const btn = document.getElementById('saveBtn');
+  btn.textContent = 'Saving...';
+  fetch('/save', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ script: scriptContent() })
+  })
+  .then(r => r.json())
+  .then(d => {
+    if (d.ok) {
+      btn.textContent = 'Saved!';
+      btn.classList.add('success');
+    } else {
+      btn.textContent = 'Error';
+      btn.classList.add('error');
+      console.error(d.error);
+    }
+    setTimeout(() => {
+      btn.textContent = 'Save Script';
+      btn.classList.remove('success', 'error');
+    }, 2500);
+  })
+  .catch(() => {
+    btn.textContent = 'Failed';
+    btn.classList.add('error');
+    setTimeout(() => { btn.textContent = 'Save Script'; btn.classList.remove('error'); }, 2500);
+  });
+});
+
+document.getElementById('randBtn').addEventListener('click', () => {
+  positions = randomPositions();
+  drawGrid();
+  buildObstacles();
+});
+
+function init() {
+  positions = randomPositions();
+  drawGrid();
+  buildObstacles();
+}
+
+window.addEventListener('resize', () => {
+  drawGrid();
+  ZONES.forEach((z, i) => {
+    const el = document.getElementById('obs' + z.id);
+    if (!el) return;
+    const [px, py] = toPixel(positions[i].x, positions[i].y);
+    el.style.left = px + 'px';
+    el.style.top  = py + 'px';
+  });
+});
+
+init();
+</script>
+</body>
+</html>
