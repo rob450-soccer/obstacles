@@ -21,16 +21,16 @@ cleanup() {
 }
 trap cleanup INT TERM EXIT
 
-echo "Executing: python3 run_obstacles.py --number 1 --x 2.96 --y 3.23"
-python3 run_obstacles.py --number 1 --x 2.96 --y 3.23 &
+echo "Executing: python3 run_obstacles.py --number 1 --x 1.00 --y 0.25"
+python3 run_obstacles.py --number 1 --x 1.00 --y 0.25 &
 child_pids+=($!)
 
-echo "Executing: python3 run_obstacles.py --number 2 --x 1.42 --y -3.78"
-python3 run_obstacles.py --number 2 --x 1.42 --y -3.78 &
+echo "Executing: python3 run_obstacles.py --number 2 --x 1.00 --y -0.25"
+python3 run_obstacles.py --number 2 --x 1.00 --y -0.25 &
 child_pids+=($!)
 
-echo "Executing: python3 run_obstacles.py --number 3 --x 6.26 --y -1.67"
-python3 run_obstacles.py --number 3 --x 6.26 --y -1.67 &
+echo "Executing: python3 run_obstacles.py --number 3 --x 4.50 --y 2.00"
+python3 run_obstacles.py --number 3 --x 4.50 --y 2.00 &
 child_pids+=($!)
 
 wait "${child_pids[@]}"
